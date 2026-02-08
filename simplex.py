@@ -200,6 +200,9 @@ class Simplex:
         max_iterations = 10000  # safety limit to prevent infinite loops during debugging
         iteration = 0
         
+        # debug flag - set to True to see detailed output
+        debug = False  # change to True to enable debugging
+        
         while True:
             assert self.check_invariant()
             iteration += 1
@@ -277,7 +280,15 @@ class Simplex:
             
             # if we can't find any non-basic variable to help, system is infeasible
             if selected_nb_idx is None:
+                if debug:
+                    print(f"  Iteration {iteration}: No suitable non-basic variable found -> INFEASIBLE")
                 return False
+            
+            if debug:
+                nbvar_name = self.non_basic[selected_nb_idx]
+                nbvar_val = self.assignments[nbvar_name]
+                coeff_val = self.tableaux[violating_basic_idx][selected_nb_idx]
+                print(f"  Iteration {iteration}: Selected {nbvar_name} (current={nbvar_val}, coeff={coeff_val})")
             
             # Step 3: calculate how much to change the non-basic variable
             nbvar = self.non_basic[selected_nb_idx]
