@@ -307,21 +307,20 @@ class Simplex:
             new_nbval = self.assignments[nbvar] + delta_nb
             
             # Step 4: check if nbvar would hit its own bound
-            # if yes, we need to pivot; if no, just update
-            needs_pivot = False
+            # IMPORTANT: in standard simplex, we ALWAYS pivot!
+            # this ensures the tableau structure changes and prevents cycling
             
+            # check if nbvar hits its bound before bvar reaches its target
             if delta_nb > 0:
-                # we're increasing nbvar
+                # we're increasing nbvar - check upper bound
                 if self.ub[nbvar] is not None and new_nbval > self.ub[nbvar]:
-                    # we hit the upper bound before reaching target
+                    # nbvar hits its upper bound first
                     new_nbval = self.ub[nbvar]
-                    needs_pivot = True
             else:
-                # we're decreasing nbvar
+                # we're decreasing nbvar - check lower bound  
                 if self.lb[nbvar] is not None and new_nbval < self.lb[nbvar]:
-                    # we hit the lower bound before reaching target
+                    # nbvar hits its lower bound first
                     new_nbval = self.lb[nbvar]
-                    needs_pivot = True
             
             # update nbvar assignment
             old_nbval = self.assignments[nbvar]
@@ -335,62 +334,59 @@ class Simplex:
                 c = self.tableaux[i][selected_nb_idx]
                 self.assignments[bv] = self.assignments[bv] + c * actual_delta
             
-            # Step 5: if we need to pivot, swap the variables
-            if needs_pivot:
-                # swap basic[violating_basic_idx] with non_basic[selected_nb_idx]
-                # this is the trickiest part - we need to update the tableau
+            # Step 5: ALWAYS pivot to change tableau structure
+            # this is crucial to avoid cycling between conflicting basic variables
+            # save the variables we're swapping
+            old_basic = self.basic[violating_basic_idx]
+            old_nb = self.non_basic[selected_nb_idx]
+            
+            # the pivot coefficient
+            pivot_coeff = self.tableaux[violating_basic_idx][selected_nb_idx]
+            
+            # rewrite the pivot row: solve for the new basic variable (old_nb)
+            # old row: old_basic = sum(a[j] * nb[j])
+            # pivot element is a[selected_nb_idx] = pivot_coeff
+            # new row: old_nb = (1/pivot_coeff) * old_basic - sum((a[j]/pivot_coeff) * nb[j] for j != selected)
+            
+            pivot_row = self.tableaux[violating_basic_idx]
+            new_pivot_row = []
+            for j in range(len(self.non_basic)):
+                if j == selected_nb_idx:
+                    # this position will hold the old basic variable
+                    # coefficient is 1/pivot_coeff
+                    new_pivot_row.append(Fraction(1) / pivot_coeff)
+                else:
+                    # coefficient is -a[j]/pivot_coeff
+                    new_pivot_row.append(-pivot_row[j] / pivot_coeff)
+            
+            # update all other rows: substitute the new expression for old_nb
+            # old row: basic[i] = sum(a[i][j] * nb[j])
+            # we're replacing nb[selected_nb_idx] with the new expression
+            
+            for i in range(len(self.basic)):
+                if i == violating_basic_idx:
+                    # this is the pivot row, already handled
+                    continue
                 
-                # save the variables we're swapping
-                old_basic = self.basic[violating_basic_idx]
-                old_nb = self.non_basic[selected_nb_idx]
+                old_coeff = self.tableaux[i][selected_nb_idx]
+                if old_coeff == 0:
+                    # this row doesn't depend on the variable we're pivoting, skip
+                    continue
                 
-                # the pivot coefficient
-                pivot_coeff = self.tableaux[violating_basic_idx][selected_nb_idx]
-                
-                # rewrite the pivot row: solve for the new basic variable (old_nb)
-                # old row: old_basic = sum(a[j] * nb[j])
-                # pivot element is a[selected_nb_idx] = pivot_coeff
-                # new row: old_nb = (1/pivot_coeff) * old_basic - sum((a[j]/pivot_coeff) * nb[j] for j != selected)
-                
-                pivot_row = self.tableaux[violating_basic_idx]
-                new_pivot_row = []
+                # substitute: nb[selected] = new_pivot_row expression
+                # basic[i] = ... + old_coeff * (new_pivot_row) + ...
                 for j in range(len(self.non_basic)):
                     if j == selected_nb_idx:
-                        # this position will hold the old basic variable
-                        # coefficient is 1/pivot_coeff
-                        new_pivot_row.append(Fraction(1) / pivot_coeff)
+                        # this will become the coefficient for old_basic
+                        self.tableaux[i][j] = old_coeff * new_pivot_row[j]
                     else:
-                        # coefficient is -a[j]/pivot_coeff
-                        new_pivot_row.append(-pivot_row[j] / pivot_coeff)
-                
-                # update all other rows: substitute the new expression for old_nb
-                # old row: basic[i] = sum(a[i][j] * nb[j])
-                # we're replacing nb[selected_nb_idx] with the new expression
-                
-                for i in range(len(self.basic)):
-                    if i == violating_basic_idx:
-                        # this is the pivot row, already handled
-                        continue
-                    
-                    old_coeff = self.tableaux[i][selected_nb_idx]
-                    if old_coeff == 0:
-                        # this row doesn't depend on the variable we're pivoting, skip
-                        continue
-                    
-                    # substitute: nb[selected] = new_pivot_row expression
-                    # basic[i] = ... + old_coeff * (new_pivot_row) + ...
-                    for j in range(len(self.non_basic)):
-                        if j == selected_nb_idx:
-                            # this will become the coefficient for old_basic
-                            self.tableaux[i][j] = old_coeff * new_pivot_row[j]
-                        else:
-                            # add the contribution from the substitution
-                            self.tableaux[i][j] = self.tableaux[i][j] + old_coeff * new_pivot_row[j]
-                
-                # finally, update the pivot row and swap variables
-                self.tableaux[violating_basic_idx] = new_pivot_row
-                self.basic[violating_basic_idx] = old_nb
-                self.non_basic[selected_nb_idx] = old_basic
+                        # add the contribution from the substitution
+                        self.tableaux[i][j] = self.tableaux[i][j] + old_coeff * new_pivot_row[j]
+            
+            # finally, update the pivot row and swap variables
+            self.tableaux[violating_basic_idx] = new_pivot_row
+            self.basic[violating_basic_idx] = old_nb
+            self.non_basic[selected_nb_idx] = old_basic
 
         self.check_invariant()
 
